@@ -1,7 +1,7 @@
 # Algorithm X 解 6×6 數獨
 ## Example 
 
-https://slothman5566.github.io/AlgorithmXSample/
+https://slothman5566.github.io/AlgorithmSample/
 
 ## Reference
 
