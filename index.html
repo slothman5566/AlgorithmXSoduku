@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Algorithm X 6×6 Sudoku 步進器</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+    background: #f5f6f8; color: #20242a;
+  }
+  h1 { margin: 0 0 8px; }
+  .sub { color: #666; margin-bottom: 18px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 380px minmax(520px, 1fr);
+    gap: 18px;
+    max-width: 1500px;
+    margin: auto;
+  }
+  .panel {
+    background: white; border: 1px solid #ddd; border-radius: 12px;
+    padding: 16px; box-shadow: 0 2px 8px #0000000b;
+  }
+  button {
+    border: 1px solid #bbb; background: #fff; border-radius: 7px;
+    padding: 8px 12px; cursor: pointer; margin: 3px;
+  }
+  button:hover { background: #f0f2f5; }
+  button.primary { background: #20242a; color: white; border-color: #20242a; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  textarea {
+    width: 100%; height: 145px; font-family: monospace; font-size: 15px;
+    padding: 10px; border: 1px solid #bbb; border-radius: 7px;
+  }
+  .controls { margin: 10px 0; }
+  .status {
+    background: #f1f3f5; padding: 10px; border-radius: 7px;
+    line-height: 1.5; min-height: 68px;
+  }
+  .sudoku {
+    display: grid;
+    grid-template-columns: repeat(6, 54px);
+    grid-template-rows: repeat(6, 54px);
+    width: max-content;
+    margin: 8px auto 18px;
+    border: 3px solid #222;
+  }
+  .cell {
+    width: 54px; height: 54px; display: grid; place-items: center;
+    font-size: 22px; border-right: 1px solid #aaa; border-bottom: 1px solid #aaa;
+    position: relative;
+  }
+  .cell:nth-child(3n) { border-right: 3px solid #222; }
+  .cell:nth-child(6n) { border-right: 0; }
+  .cell:nth-child(n+7):nth-child(-n+12),
+  .cell:nth-child(n+19):nth-child(-n+24) { border-bottom: 3px solid #222; }
+  .cell.fixed { font-weight: 700; }
+  .cell.active { background: #fff2a8; }
+  .cell.try { background: #cfe8ff; }
+  .cell.conflict { background: #ffc9c9; }
+  .cell .coord {
+    position: absolute; top: 1px; left: 3px; font-size: 9px; color: #999;
+  }
+
+  .constraint-grid {
+    display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px;
+    margin-top: 8px;
+  }
+  .constraint {
+    height: 34px; display: grid; place-items: center;
+    border: 1px solid #ccc; border-radius: 4px; font: 11px monospace;
+    background: #fafafa;
+  }
+  .constraint.covered { background: #222; color: white; border-color: #222; }
+  .constraint.target { outline: 3px solid #f0a000; }
+  .constraint.bad { background: #ffb5b5; }
+
+  .columns {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  }
+  .box {
+    border: 1px solid #ddd; border-radius: 8px; padding: 10px;
+    min-height: 180px; overflow: auto;
+  }
+  .candidate {
+    font-family: monospace; padding: 5px 7px; margin: 3px 0;
+    border-radius: 5px; background: #f3f4f6;
+  }
+  .candidate.selected { background: #cfe8ff; }
+  .candidate.rejected { background: #ffd0d0; }
+  .candidate.current { outline: 2px solid #f0a000; }
+  .log {
+    height: 250px; overflow: auto; background: #111; color: #ddd;
+    border-radius: 7px; padding: 10px; font: 12px/1.5 monospace;
+    white-space: pre-wrap;
+  }
+  .legend span { display: inline-block; margin-right: 12px; font-size: 13px; }
+  .dot { display:inline-block; width:12px; height:12px; border:1px solid #999; margin-right:4px; vertical-align:-2px; }
+  .dot.yellow { background:#fff2a8; } .dot.blue { background:#cfe8ff; }
+  .dot.black { background:#222; }
+  @media(max-width: 1000px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <section class="panel">
+    <h1>Algorithm X</h1>
+    <div class="sub">6×6 Sudoku / 3×2 Block / Exact Cover 步進器</div>
+
+    <label><b>輸入 Sudoku</b></label>
+    <textarea id="input">0 0 2 1 3 5
+0 3 4 5 0 0
+1 0 3 0 0 0
+0 0 0 4 0 1
+0 0 1 2 4 0
+4 1 6 3 0 0</textarea>
+
+    <div class="controls">
+      <button class="primary" onclick="resetSolver()">建立 Candidate</button>
+      <button id="stepBtn" onclick="step()" disabled>下一步 ▶</button>
+      <button id="runBtn" onclick="runAll()" disabled>跑完</button>
+      <button onclick="resetSolver()">重置</button>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <h3>目前 Sudoku</h3>
+    <div id="sudoku" class="sudoku"></div>
+
+    <div class="legend">
+      <span><i class="dot yellow"></i>目前選擇</span>
+      <span><i class="dot blue"></i>嘗試 Candidate</span>
+      <span><i class="dot black"></i>Constraint 已覆蓋</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>1. 144 個 Constraints</h2>
+    <div id="constraintInfo"></div>
+    <div id="constraints" class="constraint-grid"></div>
+
+    <div class="columns" style="margin-top:18px">
+      <div class="box">
+        <h3>目前 Target Constraint</h3>
+        <div id="target"></div>
+      </div>
+      <div class="box">
+        <h3>Candidate</h3>
+        <div id="candidates"></div>
+      </div>
+    </div>
+
+    <h2>2. Chosen Stack</h2>
+    <div id="chosen" class="box"></div>
+
+    <h2>3. 執行 Log</h2>
+    <div id="log" class="log"></div>
+  </section>
+</div>
+
+<script>
+const N = 6;
+const BLOCK_R = 3;
+const BLOCK_C = 2;
+const TOTAL = 144;
+
+let matrix = [];
+let fixed = [];
+let candidates = [];
+let byConstraint = Array.from({length: TOTAL}, () => []);
+let covered = new Array(TOTAL).fill(false);
+let fixedCovered = new Array(TOTAL).fill(false);
+let chosen = [];
+let stack = [];
+let phase = "idle";
+let target = -1;
+let targetCandidates = [];
+let candidateIndex = 0;
+let currentCandidate = -1;
+let steps = 0;
+
+function parseInput() {
+  const rows = document.getElementById("input").value.trim().split(/\n/);
+  if (rows.length !== 6) throw Error("必須是 6 行");
+  const m = rows.map(r => r.trim().split(/[\s,]+/).map(Number));
+  if (m.some(r => r.length !== 6 || r.some(v => !Number.isInteger(v) || v < 0 || v > 6)))
+    throw Error("每格必須是 0~6");
+  return m;
+}
+
+function blockIndex(row, col) {
+  // 6×6 / 3×2 宮格：每一個橫向區帶有 3 個宮格。
+  return Math.floor(row / BLOCK_R) * (N / BLOCK_C) + Math.floor(col / BLOCK_C);
+}
+
+function constraintsOf(row, col, value) {
+  return [
+    row * 6 + col,
+    36 + row * 6 + (value - 1),
+    72 + col * 6 + (value - 1),
+    108 + blockIndex(row, col) * 6 + (value - 1)
+  ];
+}
+
+function candidateText(c) {
+  return `(${c.row},${c.col},${c.value}) [${c.constraints.join(", ")}]`;
+}
+
+function buildCandidates() {
+  matrix = parseInput();
+  fixed = matrix.map(r => r.map(v => v !== 0));
+  candidates = [];
+  byConstraint = Array.from({length: TOTAL}, () => []);
+
+  for (let r=0; r<6; r++) {
+    for (let c=0; c<6; c++) {
+      const values = matrix[r][c] ? [matrix[r][c]] : [1,2,3,4,5,6];
+      for (const v of values) {
+        const cs = constraintsOf(r,c,v);
+        const cand = {id:candidates.length, row:r, col:c, value:v, constraints:cs};
+        candidates.push(cand);
+        for (const x of cs) byConstraint[x].push(cand.id);
+      }
+    }
+  }
+}
+
+function resetSolver() {
+  try {
+    buildCandidates();
+    covered = new Array(TOTAL).fill(false);
+    chosen = [];
+    stack = [];
+    // 已知數字本身就是已經選定的 candidate，先把它們的 4 個 constraints 視為 covered
+    for (let r=0; r<6; r++) {
+      for (let c=0; c<6; c++) {
+        if (matrix[r][c] !== 0) {
+          const v = matrix[r][c];
+          for (const x of constraintsOf(r,c,v)) covered[x] = true;
+        }
+      }
+    }
+    // 保存題目原始數字的覆蓋狀態，供 Backtrack 重建使用。
+    fixedCovered = covered.slice();
+    phase = "findTarget";
+    target = -1;
+    targetCandidates = [];
+    candidateIndex = 0;
+    currentCandidate = -1;
+    steps = 0;
+    document.getElementById("stepBtn").disabled = false;
+    document.getElementById("runBtn").disabled = false;
+    log("建立完成：共 " + candidates.length + " 個 Candidate、144 個 Constraints。");
+    log("固定數字已先覆蓋其 4 個 constraints，開始搜尋剩餘 constraints。");
+    log("開始 Algorithm X。下一步：尋找 candidate 最少的 constraint。");
+    render();
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+function legalCandidates(constraint) {
+  return byConstraint[constraint].filter(id =>
+    candidates[id].constraints.every(x => !covered[x])
+  );
+}
+
+function findBestConstraint() {
+  let best = -1, bestList = null;
+  for (let i=0; i<TOTAL; i++) {
+    if (covered[i]) continue;
+    const list = legalCandidates(i);
+    if (list.length === 0) return {constraint:i, list:[]};
+    if (best === -1 || list.length < bestList.length) {
+      best = i; bestList = list;
+      if (list.length === 1) break;
+    }
+  }
+  return {constraint:best, list:bestList || []};
+}
+
+function selectCandidate(id) {
+  const c = candidates[id];
+  if (!c.constraints.every(x => !covered[x])) return false;
+  for (const x of c.constraints) covered[x] = true;
+  chosen.push(id);
+  matrix[c.row][c.col] = c.value;
+  log(`選擇 Candidate ${candidateText(c)}`);
+  return true;
+}
+
+function undoCandidate(id) {
+  const c = candidates[id];
+
+  // 只移除「這一層」所選的 Candidate。
+  // 固定數字造成的 constraints 絕對不能被清掉。
+  chosen.pop();
+
+  rebuildStateFromChosen();
+
+  log(`Backtrack ← ${candidateText(c)}`);
+}
+
+function rebuildStateFromChosen() {
+  // 重新建立：
+  //   初始固定數字的 covered
+  //   +
+  //   目前 chosen 的 Candidate
+  //
+  // 因此 Backtracking 不會把前面的選擇全部清掉。
+  covered = fixedCovered.slice();
+
+  for (const id of chosen) {
+    const c = candidates[id];
+    for (const x of c.constraints) {
+      if (covered[x]) {
+        throw Error(`內部狀態錯誤：constraint ${x} 被重複覆蓋`);
+      }
+      covered[x] = true;
+    }
+  }
+
+  rebuildMatrixFromChosen();
+}
+
+function rebuildMatrixFromChosen() {
+  // 先保留題目原本給定的數字，其他格清空。
+  for (let r = 0; r < 6; r++) {
+    for (let c = 0; c < 6; c++) {
+      if (!fixed[r][c]) matrix[r][c] = 0;
+    }
+  }
+
+  // 再把目前搜尋路徑上的 Candidate 填回去。
+  for (const id of chosen) {
+    const c = candidates[id];
+    matrix[c.row][c.col] = c.value;
+  }
+}
+
+function allCovered() {
+  return covered.every(Boolean);
+}
+
+function step() {
+  steps++;
+
+  if (phase === "done") return;
+
+  if (phase === "findTarget") {
+    if (allCovered()) {
+      phase = "done";
+      log("✓ 144 個 Constraints 全部 covered，找到解！");
+      document.getElementById("stepBtn").disabled = true;
+      document.getElementById("runBtn").disabled = true;
+      render(); return;
+    }
+
+    const result = findBestConstraint();
+    target = result.constraint;
+    targetCandidates = result.list;
+    candidateIndex = 0;
+
+    if (targetCandidates.length === 0) {
+      log(`✗ Constraint ${target} 沒有合法 Candidate，必須 Backtrack。`);
+      phase = "backtrack";
+    } else {
+      log(`Target = Constraint ${target}，可選 Candidate = ${targetCandidates.length}`);
+      phase = "tryCandidate";
+    }
+    render(); return;
+  }
+
+  if (phase === "tryCandidate") {
+    if (candidateIndex >= targetCandidates.length) {
+      log(`Constraint ${target} 的 Candidate 全部失敗，開始 Backtrack。`);
+      phase = "backtrack";
+      render(); return;
+    }
+
+    currentCandidate = targetCandidates[candidateIndex++];
+    const c = candidates[currentCandidate];
+
+    if (selectCandidate(currentCandidate)) {
+      stack.push({
+        candidateId: currentCandidate,
+        target: target,
+        candidates: targetCandidates.slice(),
+        nextIndex: candidateIndex
+      });
+      phase = "findTarget";
+    } else {
+      log(`Candidate ${candidateText(c)} 與既有 constraint 衝突。`);
+    }
+    render(); return;
+  }
+
+  if (phase === "backtrack") {
+    if (stack.length === 0) {
+      phase = "failed";
+      log("✗ Stack 已空，這個 Sudoku 無解。");
+      document.getElementById("stepBtn").disabled = true;
+      document.getElementById("runBtn").disabled = true;
+      render();
+      return;
+    }
+
+    // stack 最上層代表「上一個成功選擇的 Candidate」。
+    // 把它撤銷後，回到它當時的 Target Constraint，
+    // 繼續嘗試該 Target 尚未嘗試的下一個 Candidate。
+    const frame = stack[stack.length - 1];
+    const removedId = frame.candidateId;
+    const removed = candidates[removedId];
+
+    undoCandidate(removedId);
+    stack.pop();
+
+    target = frame.target;
+    targetCandidates = frame.candidates;
+    candidateIndex = frame.nextIndex;
+    currentCandidate = -1;
+
+    log(
+      `回到 Target ${target} (${describeConstraint(target)})，` +
+      `繼續嘗試 ${candidateIndex}/${targetCandidates.length}`
+    );
+
+    phase = "tryCandidate";
+    render();
+  }
+}
+
+function runAll() {
+  let guard = 100000;
+  while (phase !== "done" && phase !== "failed" && guard-- > 0) step();
+  render();
+}
+
+function typeOfConstraint(i) {
+  if (i < 36) return "Cell";
+  if (i < 72) return "Row";
+  if (i < 108) return "Col";
+  return "Block";
+}
+
+function describeConstraint(i) {
+  if (i < 36) {
+    return `Cell (${Math.floor(i/6)},${i%6})`;
+  }
+  if (i < 72) {
+    const x=i-36; return `Row ${Math.floor(x/6)} = ${x%6+1}`;
+  }
+  if (i < 108) {
+    const x=i-72; return `Col ${Math.floor(x/6)} = ${x%6+1}`;
+  }
+  const x=i-108; return `Block ${Math.floor(x/6)+1} = ${x%6+1}`;
+}
+
+function renderSudoku() {
+  const el=document.getElementById("sudoku");
+  el.innerHTML="";
+  for(let r=0;r<6;r++) for(let c=0;c<6;c++) {
+    const d=document.createElement("div");
+    d.className="cell";
+    if(fixed[r][c]) d.classList.add("fixed");
+    if(currentCandidate >= 0) {
+      const cc=candidates[currentCandidate];
+      if(cc.row===r && cc.col===c) d.classList.add("try");
+    }
+    const span=document.createElement("span");
+    span.textContent=matrix[r][c] || "";
+    d.appendChild(span);
+    const coord=document.createElement("small");
+    coord.className="coord";
+    coord.textContent=`${r},${c}`;
+    d.appendChild(coord);
+    el.appendChild(d);
+  }
+}
+
+function renderConstraints() {
+  const el=document.getElementById("constraints");
+  el.innerHTML="";
+  for(let i=0;i<TOTAL;i++) {
+    const d=document.createElement("div");
+    d.className="constraint";
+    if(covered[i]) d.classList.add("covered");
+    if(i===target) d.classList.add("target");
+    d.title=describeConstraint(i);
+    d.textContent=i;
+    el.appendChild(d);
+  }
+  document.getElementById("constraintInfo").innerHTML =
+    `<b>Cell 0~35</b>　<b>Row 36~71</b>　<b>Col 72~107</b>　<b>Block 108~143</b>`;
+}
+
+function renderTarget() {
+  const el=document.getElementById("target");
+  if(target<0) {
+    el.textContent="尚未選擇";
+    return;
+  }
+  el.innerHTML=`<b>#${target}</b> ${describeConstraint(target)}<br>
+  可用 Candidate：${targetCandidates.length}`;
+}
+
+function renderCandidates() {
+  const el=document.getElementById("candidates");
+  el.innerHTML="";
+  const list = targetCandidates || [];
+  list.forEach((id,idx)=>{
+    const c=candidates[id];
+    const d=document.createElement("div");
+    d.className="candidate";
+    if(chosen.includes(id)) d.classList.add("selected");
+    if(id===currentCandidate) d.classList.add("current");
+    d.textContent=`${idx+1}. ${candidateText(c)}`;
+    el.appendChild(d);
+  });
+}
+
+function renderChosen() {
+  const el=document.getElementById("chosen");
+  el.innerHTML=chosen.length
+    ? chosen.map((id,i)=>`<div class="candidate selected">${i+1}. ${candidateText(candidates[id])}</div>`).join("")
+    : "<span>尚未選擇 Candidate</span>";
+}
+
+function renderStatus() {
+  const coveredCount=covered.filter(Boolean).length;
+  let text="";
+  if(phase==="idle") text="尚未開始";
+  else if(phase==="findTarget") text="尋找 candidate 最少的 constraint";
+  else if(phase==="tryCandidate") text="嘗試 Candidate";
+  else if(phase==="backtrack") text="Backtracking";
+  else if(phase==="done") text="完成：找到解";
+  else if(phase==="failed") text="無解";
+  document.getElementById("status").innerHTML =
+    `<b>Step：</b>${steps}<br>
+     <b>Phase：</b>${text}<br>
+     <b>Covered：</b>${coveredCount} / 144　
+     <b>Chosen：</b>${chosen.length}`;
+}
+
+function render() {
+  renderSudoku();
+  renderConstraints();
+  renderTarget();
+  renderCandidates();
+  renderChosen();
+  renderStatus();
+}
+
+function log(s) {
+  const el=document.getElementById("log");
+  el.textContent += `[${String(steps).padStart(4,"0")}] ${s}\n`;
+  el.scrollTop=el.scrollHeight;
+}
+
+render();
+</script>
+</body>
+</html>
