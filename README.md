@@ -1,5 +1,11 @@
 # Algorithm X 解 6×6 數獨
 
+## Reference
+
+[Day30 -- Algorithm X and Sudoku](https://ithelp.ithome.com.tw/articles/10250123)
+
+[X演算法](https://zh.wikipedia.org/wiki/X%E7%AE%97%E6%B3%95)
+
 ## 1. 數獨的 Exact Cover 條件
 
 以 **6×6 數獨**為例，每個位置需要滿足 4 種條件：
